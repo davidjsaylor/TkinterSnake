@@ -12,6 +12,7 @@ class SnakeGame:
         self.master.title('Snake')
 
         self.game_loop_id = None
+        self.direction_queue = []  # Initialize the direction queue
 
         self.player_name = tk.StringVar(value='')
         
@@ -55,6 +56,8 @@ class SnakeGame:
         self.running = False
         self.paused = False
         self.start_time = None
+        self.last_time = None
+        self.elapsed_time = 0
         
         self.master.bind('<KeyPress>', self.change_direction)
         self.master.bind('<space>', self.toggle_pause)
@@ -70,6 +73,8 @@ class SnakeGame:
         self.running = True
         self.paused = False
         self.start_time = time.time()
+        self.last_time = self.start_time
+        self.elapsed_time = 0
         self.canvas.delete('game_over')
         self.render_food()
         self.update_labels()
@@ -105,11 +110,14 @@ class SnakeGame:
         keys = {'s': 'Left', 'e': 'Up', 'f': 'Right', 'd': 'Down'}
         if event.keysym in keys:
             new_dir = keys[event.keysym]
-        else:
-            new_dir = event.keysym
-        opposites = {'Left': 'Right', 'Right': 'Left', 'Up': 'Down', 'Down': 'Up'}
-        if new_dir in opposites and self.direction != opposites[new_dir]:
-            self.direction = new_dir
+            opposites = {'Left': 'Right', 'Right': 'Left', 'Up': 'Down', 'Down': 'Up'}
+            if not self.direction_queue:  # If the queue is empty, check against the current direction
+                current_direction = self.direction
+            else:  # If not, check against the last direction in the queue
+                current_direction = self.direction_queue[-1]
+
+            if new_dir != opposites.get(current_direction):  # Prevent reversing
+                self.direction_queue.append(new_dir)
 
     def check_speed_change(self, value):
         if self.running:
@@ -123,9 +131,20 @@ class SnakeGame:
         if not self.running:
             return
         self.paused = not self.paused
-        self.master.config(cursor='none' if self.paused else '')
+        if self.paused:
+            # Calculate elapsed time up to the pause and reset last_time
+            current_time = time.time()
+            self.elapsed_time += (current_time - self.last_time)
+            self.master.config(cursor='')
+        else:
+            # Game is resuming, update last_time to current time
+            self.last_time = time.time()
+            self.master.config(cursor='none')
 
     def game_loop(self):
+        if self.direction_queue:  # Check if there's a direction in the queue
+            self.direction = self.direction_queue.pop(0)  # Update the direction to the next in the queue
+
         if self.running and not self.paused:
             self.move_snake()
             self.check_collision()
@@ -165,19 +184,22 @@ class SnakeGame:
         self.render_snake()
 
     def show_game_over(self):
+        self.update_timer()  # Ensure the final time is displayed correctly
         width = int(self.canvas.cget('width'))
         height = int(self.canvas.cget('height'))
         self.canvas.create_text(width // 2, height // 2, text='Game Over', fill='white', font=('Arial', 24), tags='game_over')
         self.check_high_score()
+        self.master.config(cursor='')
 
     def update_labels(self):
         self.score_label.config(text=f'Length: {len(self.snake)}')
         self.difficulty_label.config(text=f'Difficulty: {self.speed_var.get()}')
 
     def update_timer(self):
-        if self.start_time:
-            elapsed_time = int(time.time() - self.start_time)
-            self.timer_label.config(text=f'Time: {elapsed_time}s')
+        if not self.paused and self.running:
+            current_time = time.time()
+            total_elapsed = self.elapsed_time + (current_time - self.last_time)
+            self.timer_label.config(text=f'Time: {int(total_elapsed)}s')
 
     def confirm_new_game(self):
         if self.running and not messagebox.askyesno('New Game?', 'Are you sure you want to start a new game?'):
@@ -274,7 +296,6 @@ class SnakeGame:
             ]
             self.save_high_scores()
 
-
     def draw_title_screen(self):
         self.title_text = self.canvas.create_text(400, 350, text='Snake', fill='red', font=('Arial', 44, 'bold'))
         self.logo_text = self.canvas.create_text(400, 400, text='How big can your snake get?', fill='white', font=('Arial', 24))
@@ -295,6 +316,7 @@ class SnakeGame:
         name_entry.pack(padx=10, pady=10)
         name_entry.focus_set()
         name_entry.select_range(0, tk.END)
+        name_entry.bind('<KeyPress-Return>', lambda event: dialog.destroy())
 
         submit_button = tk.Button(dialog, text='OK', command=lambda: dialog.destroy())
         submit_button.pack(side=tk.LEFT, padx=10, pady=10)
